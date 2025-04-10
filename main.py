@@ -57,7 +57,7 @@ class CTeProcessor:
             var.set(selected)
 
     def save_file(self):
-        file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel Files", "*.xlsx")])
+        file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[["Excel Files", "*.xlsx"]])
         if file_path:
             self.output_excel.set(file_path)
 
@@ -87,23 +87,29 @@ class CTeProcessor:
                     tree = ET.parse(input_file_path)
                     root = tree.getroot()
 
-                    # Busca considerando namespace
                     ns = {'ns': root.tag[root.tag.find('{')+1:root.tag.find('}')]} if '}' in root.tag else {}
 
+                    def get_text_path(path):
+                        el = root.find(path, ns) if ns else root.find(path)
+                        return el.text.strip() if el is not None and el.text else ''
+
+                    chave = ''
                     inf_cte_elem = root.find('.//ns:infCte', ns) if ns else root.find('.//infCte')
-                    chave = inf_cte_elem.attrib.get('Id', '').replace('CTe', '') if inf_cte_elem is not None else ''
-
-                    data_emissao_elem = root.find('.//ns:ide/ns:dhEmi', ns) if ns else root.find('.//ide/dhEmi')
-                    data_emissao = data_emissao_elem.text[:10] if data_emissao_elem is not None and data_emissao_elem.text else ''
-
-                    dest_elem = root.find('.//ns:dest/ns:xNome', ns) if ns else root.find('.//dest/xNome')
-                    nome_dest = dest_elem.text if dest_elem is not None else ''
+                    if inf_cte_elem is not None:
+                        chave = inf_cte_elem.attrib.get('Id', '').replace('CTe', '')
 
                     data.append({
                         'Nome do Arquivo': file,
                         'Chave': chave,
-                        'Data de Emissão': data_emissao,
-                        'Destinatário': nome_dest
+                        'Data de Emissão': get_text_path('.//ns:ide/ns:dhEmi'),
+                        'Destinatário': get_text_path('.//ns:dest/ns:xNome'),
+                        'CNPJ': get_text_path('.//ns:dest/ns:CNPJ'),
+                        'IE': get_text_path('.//ns:dest/ns:IE'),
+                        'Telefone': get_text_path('.//ns:dest/ns:enderDest/ns:fone'),
+                        'Cidade': get_text_path('.//ns:dest/ns:enderDest/ns:xMun'),
+                        'CEP': get_text_path('.//ns:dest/ns:enderDest/ns:CEP'),
+                        'UF/Estado': get_text_path('.//ns:dest/ns:enderDest/ns:UF'),
+                        'País': get_text_path('.//ns:dest/ns:enderDest/ns:xPais')
                     })
 
                     dest_path = os.path.join(success_path, file)
@@ -111,7 +117,6 @@ class CTeProcessor:
                         base, ext = os.path.splitext(file)
                         dest_path = os.path.join(success_path, f"{base}_{uuid.uuid4().hex[:6]}{ext}")
                     os.rename(input_file_path, dest_path)
-
                     processed += 1
                 except Exception as e:
                     dest_path = os.path.join(error_path, file)
@@ -122,6 +127,7 @@ class CTeProcessor:
 
         if processed > 0:
             df = pd.DataFrame(data)
+            df = df.sort_values(by='UF/Estado')
             df.to_excel(output_file, index=False)
             self.progress.config(text=f"{processed} arquivos processados com sucesso.")
         else:
