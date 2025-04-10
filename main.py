@@ -1,83 +1,134 @@
 import os
-import shutil
-import tkinter as tk
-from tkinter import filedialog, messagebox
 import xml.etree.ElementTree as ET
 import pandas as pd
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter import ttk
+import threading
+import uuid
 
-# Função para processar os arquivos
-def processar_xmls():
-    pasta_entrada = entrada_pasta.get()
-    pasta_processados = entrada_processados.get()
-    pasta_nao_processados = entrada_nao_processados.get()
+class CTeProcessor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Processador de XML - CTe")
 
-    if not (pasta_entrada and pasta_processados and pasta_nao_processados):
-        messagebox.showerror("Erro", "Por favor, selecione todos os diretórios.")
-        return
+        # Diretórios
+        self.input_dir = tk.StringVar()
+        self.success_dir = tk.StringVar()
+        self.error_dir = tk.StringVar()
+        self.output_excel = tk.StringVar()
 
-    dados = []
-    ns = {'ns': 'http://www.portalfiscal.inf.br/cte'}
+        self.setup_ui()
 
-    for arquivo in os.listdir(pasta_entrada):
-        if arquivo.endswith('.xml'):
-            caminho_arquivo = os.path.join(pasta_entrada, arquivo)
-            try:
-                tree = ET.parse(caminho_arquivo)
-                root = tree.getroot()
+    def setup_ui(self):
+        frame = ttk.Frame(self.root, padding=10)
+        frame.grid(row=0, column=0, sticky="nsew")
 
-                ide = root.find('.//ns:ide', ns)
-                remetente = root.find('.//ns:rem/ns:infCteDest/ns:dest/ns:xNome', ns)
-                valor_total = root.find('.//ns:vPrest', ns)
-                chave = root.attrib.get('Id', '')[-44:] if root.attrib.get('Id') else ''
+        # Campo de seleção de diretório de entrada
+        ttk.Label(frame, text="Diretório de entrada:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.input_dir, width=50).grid(row=0, column=1)
+        ttk.Button(frame, text="Procurar", command=lambda: self.browse_dir(self.input_dir)).grid(row=0, column=2)
 
-                dados.append({
-                    'Arquivo': arquivo,
-                    'Chave': chave,
-                    'Data de Emissão': ide.findtext('ns:dEmi', default='', namespaces=ns) if ide is not None else '',
-                    'Número do CTe': ide.findtext('ns:nCT', default='', namespaces=ns) if ide is not None else '',
-                    'Nome do Destinatário': remetente.text if remetente is not None else '',
-                    'Valor Total': valor_total.findtext('ns:vTPrest', default='', namespaces=ns) if valor_total is not None else ''
-                })
+        # Campo de seleção de diretório de sucesso
+        ttk.Label(frame, text="Diretório de sucesso:").grid(row=1, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.success_dir, width=50).grid(row=1, column=1)
+        ttk.Button(frame, text="Procurar", command=lambda: self.browse_dir(self.success_dir)).grid(row=1, column=2)
 
-                shutil.move(caminho_arquivo, os.path.join(pasta_processados, arquivo))
-            except Exception as e:
-                print(f"Erro ao processar {arquivo}: {e}")
-                shutil.move(caminho_arquivo, os.path.join(pasta_nao_processados, arquivo))
+        # Campo de seleção de diretório de erro
+        ttk.Label(frame, text="Diretório de erro:").grid(row=2, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.error_dir, width=50).grid(row=2, column=1)
+        ttk.Button(frame, text="Procurar", command=lambda: self.browse_dir(self.error_dir)).grid(row=2, column=2)
 
-    if dados:
-        df = pd.DataFrame(dados)
-        caminho_excel = os.path.join(pasta_processados, 'dados_cte.xlsx')
-        df.to_excel(caminho_excel, index=False)
-        messagebox.showinfo("Sucesso", f"Processamento concluído!\nArquivo salvo em:\n{caminho_excel}")
-    else:
-        messagebox.showwarning("Aviso", "Nenhum arquivo processado com sucesso.")
+        # Campo de seleção de saída do Excel
+        ttk.Label(frame, text="Salvar planilha como:").grid(row=3, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.output_excel, width=50).grid(row=3, column=1)
+        ttk.Button(frame, text="Procurar", command=self.save_file).grid(row=3, column=2)
 
-# Função para escolher diretórios
-def escolher_diretorio(campo):
-    caminho = filedialog.askdirectory()
-    if caminho:
-        campo.delete(0, tk.END)
-        campo.insert(0, caminho)
+        # Botões de ação
+        ttk.Button(frame, text="Processar", command=self.start_processing).grid(row=4, column=1, sticky="e", pady=10)
+        ttk.Button(frame, text="Cancelar", command=self.root.quit).grid(row=4, column=2, sticky="w", pady=10)
 
-# Interface gráfica
-janela = tk.Tk()
-janela.title("Processador de XML CTe")
+        self.progress = ttk.Label(frame, text="")
+        self.progress.grid(row=5, column=0, columnspan=3, pady=5)
 
-tk.Label(janela, text="Pasta com XMLs:").grid(row=0, column=0, sticky="e")
-entrada_pasta = tk.Entry(janela, width=50)
-entrada_pasta.grid(row=0, column=1)
-tk.Button(janela, text="Selecionar", command=lambda: escolher_diretorio(entrada_pasta)).grid(row=0, column=2)
+    def browse_dir(self, var):
+        selected = filedialog.askdirectory()
+        if selected:
+            var.set(selected)
 
-tk.Label(janela, text="Pasta para processados:").grid(row=1, column=0, sticky="e")
-entrada_processados = tk.Entry(janela, width=50)
-entrada_processados.grid(row=1, column=1)
-tk.Button(janela, text="Selecionar", command=lambda: escolher_diretorio(entrada_processados)).grid(row=1, column=2)
+    def save_file(self):
+        file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel Files", "*.xlsx")])
+        if file_path:
+            self.output_excel.set(file_path)
 
-tk.Label(janela, text="Pasta para não processados:").grid(row=2, column=0, sticky="e")
-entrada_nao_processados = tk.Entry(janela, width=50)
-entrada_nao_processados.grid(row=2, column=1)
-tk.Button(janela, text="Selecionar", command=lambda: escolher_diretorio(entrada_nao_processados)).grid(row=2, column=2)
+    def start_processing(self):
+        threading.Thread(target=self.process_xmls).start()
 
-tk.Button(janela, text="Processar XMLs", command=processar_xmls, bg="#4CAF50", fg="white", width=20).grid(row=3, column=1, pady=10)
+    def process_xmls(self):
+        input_path = self.input_dir.get()
+        success_path = self.success_dir.get()
+        error_path = self.error_dir.get()
+        output_file = self.output_excel.get()
 
-janela.mainloop()
+        if not all([input_path, success_path, error_path, output_file]):
+            messagebox.showerror("Erro", "Todos os campos devem ser preenchidos.")
+            return
+
+        os.makedirs(success_path, exist_ok=True)
+        os.makedirs(error_path, exist_ok=True)
+
+        data = []
+        processed = 0
+
+        for file in os.listdir(input_path):
+            if file.lower().endswith(".xml"):
+                input_file_path = os.path.join(input_path, file)
+                try:
+                    tree = ET.parse(input_file_path)
+                    root = tree.getroot()
+
+                    # Busca considerando namespace
+                    ns = {'ns': root.tag[root.tag.find('{')+1:root.tag.find('}')]} if '}' in root.tag else {}
+
+                    inf_cte_elem = root.find('.//ns:infCte', ns) if ns else root.find('.//infCte')
+                    chave = inf_cte_elem.attrib.get('Id', '').replace('CTe', '') if inf_cte_elem is not None else ''
+
+                    data_emissao_elem = root.find('.//ns:ide/ns:dhEmi', ns) if ns else root.find('.//ide/dhEmi')
+                    data_emissao = data_emissao_elem.text[:10] if data_emissao_elem is not None and data_emissao_elem.text else ''
+
+                    dest_elem = root.find('.//ns:dest/ns:xNome', ns) if ns else root.find('.//dest/xNome')
+                    nome_dest = dest_elem.text if dest_elem is not None else ''
+
+                    data.append({
+                        'Nome do Arquivo': file,
+                        'Chave': chave,
+                        'Data de Emissão': data_emissao,
+                        'Destinatário': nome_dest
+                    })
+
+                    dest_path = os.path.join(success_path, file)
+                    if os.path.exists(dest_path):
+                        base, ext = os.path.splitext(file)
+                        dest_path = os.path.join(success_path, f"{base}_{uuid.uuid4().hex[:6]}{ext}")
+                    os.rename(input_file_path, dest_path)
+
+                    processed += 1
+                except Exception as e:
+                    dest_path = os.path.join(error_path, file)
+                    if os.path.exists(dest_path):
+                        base, ext = os.path.splitext(file)
+                        dest_path = os.path.join(error_path, f"{base}_{uuid.uuid4().hex[:6]}{ext}")
+                    os.rename(input_file_path, dest_path)
+
+        if processed > 0:
+            df = pd.DataFrame(data)
+            df.to_excel(output_file, index=False)
+            self.progress.config(text=f"{processed} arquivos processados com sucesso.")
+        else:
+            self.progress.config(text="Nenhum arquivo processado com sucesso.")
+            messagebox.showinfo("Resultado", "Nenhum arquivo processado com sucesso.")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = CTeProcessor(root)
+    root.mainloop()
