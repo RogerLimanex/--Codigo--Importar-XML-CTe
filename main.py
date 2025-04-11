@@ -8,6 +8,7 @@ import threading
 import uuid
 from datetime import datetime
 
+
 class CTeProcessor:
     def __init__(self, root):
         self.root = root
@@ -88,7 +89,7 @@ class CTeProcessor:
                     tree = ET.parse(input_file_path)
                     root = tree.getroot()
 
-                    ns = {'ns': root.tag[root.tag.find('{')+1:root.tag.find('}')]} if '}' in root.tag else {}
+                    ns = {'ns': root.tag[root.tag.find('{') + 1:root.tag.find('}')]} if '}' in root.tag else {}
 
                     def get_text_path(path):
                         el = root.find(path, ns) if ns else root.find(path)
@@ -103,7 +104,8 @@ class CTeProcessor:
                     data_emissao = ''
                     if data_emissao_raw:
                         try:
-                            data_emissao = datetime.fromisoformat(data_emissao_raw.replace('Z', '')).strftime('%d/%m/%Y')
+                            data_emissao = datetime.fromisoformat(data_emissao_raw.replace('Z', '')).strftime(
+                                '%d/%m/%Y')
                         except Exception:
                             data_emissao = data_emissao_raw
 
@@ -146,6 +148,7 @@ class CTeProcessor:
         else:
             self.progress.config(text="Nenhum arquivo processado com sucesso.")
             messagebox.showinfo("Resultado", "Nenhum arquivo processado com sucesso.")
+
 
 if __name__ == "__main__":
     root = tk.Tk()
